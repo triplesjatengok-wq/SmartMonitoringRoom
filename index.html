@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Room Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif;}
+  body{background:#0c1020;display:flex;justify-content:center;padding:20px;color:white;}
+  .phone{width:100%;max-width:400px;background:#111320;border-radius:30px;padding:20px;box-shadow:0 0 30px rgba(0,0,0,0.6);}
+  .title{text-align:center;font-size:20px;font-weight:bold;margin-bottom:20px;letter-spacing:1px;}
+  .grid{display:grid;grid-template-columns:1.8fr 1fr;gap:12px;margin-bottom:12px;}
+  .card{background:#1a1d30;border-radius:20px;padding:15px;box-shadow:0 4px 10px rgba(0,0,0,0.3);}
+  .temp-box{height:180px;position:relative;display:flex;justify-content:center;align-items:center;}
+  .gauge{width:150px;height:150px;border-radius:50%;background:conic-gradient(#4da3ff 0deg,#4da3ff 160deg,#ffd54a 260deg,#2a2c3d 260deg);display:flex;justify-content:center;align-items:center;box-shadow:0 0 15px rgba(77,163,255,0.2);}
+  .gauge::before{content:'';width:120px;height:120px;background:#1a1d30;border-radius:50%;position:absolute;}
+  .t-val{position:absolute;z-index:2;text-align:center;}
+  .t-big{font-size:42px;font-weight:bold;}
+  .t-unit{font-size:18px;color:#888;}
+  .t-label{font-size:14px;color:#aaa;margin-top:5px;}
+  .side{display:flex;flex-direction:column;gap:12px;}
+  .info-box{height:85px;display:flex;flex-direction:column;justify-content:center;align-items:center;}
+  .i-icon{font-size:24px;margin-bottom:5px;}
+  .i-val{font-size:28px;font-weight:bold;}
+  .i-label{font-size:12px;color:#888;text-transform:uppercase;}
+  .slider-card{margin-bottom:12px;padding:15px;}
+  .s-head{display:flex;justify-content:space-between;margin-bottom:10px;font-size:14px;color:#aaa;}
+  input[type=range]{width:100%;height:6px;background:#333;border-radius:5px;outline:none;appearance:none;}
+  input[type=range]::-webkit-slider-thumb{appearance:none;width:20px;height:20px;border-radius:50%;background:#4da3ff;cursor:pointer;}
+  .mode-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding:0 5px;}
+  .switch{width:50px;height:26px;background:#333;border-radius:15px;position:relative;cursor:pointer;transition:0.3s;}
+  .switch.on{background:#4da3ff;}
+  .switch::before{content:'';position:absolute;width:22px;height:22px;border-radius:50%;background:white;top:2px;left:2px;transition:0.3s;}
+  .switch.on::before{left:26px;}
+  .btn-group{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:15px;}
+  button{border:none;padding:15px;border-radius:15px;font-size:16px;font-weight:bold;color:white;cursor:pointer;}
+  .b-on{background:linear-gradient(to right,#00b09b,#96c93d);}
+  .b-off{background:linear-gradient(to right,#ff416c,#ff4b2b);}
+  .chart-box{height:200px;position:relative;background:#151726;border-radius:15px;overflow:hidden;}
+  .chart-grid{position:absolute;width:100%;height:140px;bottom:30px;background-image:linear-gradient(rgba(255,255,255,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.05) 1px,transparent 1px);background-size:30px 25px;}
+  .y-axis{position:absolute;left:5px;top:10px;height:140px;display:flex;flex-direction:column;justify-content:space-between;font-size:9px;color:#666;width:20px;text-align:right;}
+  .y-axis-r{position:absolute;right:5px;top:10px;height:140px;display:flex;flex-direction:column;justify-content:space-between;font-size:9px;color:#666;width:20px;text-align:left;}
+  svg{position:absolute;left:30px;top:10px;width:calc(100% - 60px);height:140px;}
+  path{fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;}
+  .line-t{stroke:#4da3ff;} .line-h{stroke:#ffd54a;}
+  .legend{position:absolute;top:10px;right:60px;display:flex;gap:10px;font-size:10px;}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+  #status{position:fixed;top:10px;right:10px;background:#333;padding:5px 10px;border-radius:5px;font-size:12px;}
+  .online{color:#4da3ff;} .offline{color:#ff416c;}
+</style>
+</head>
+<body>
+<div id="status" class="offline">⏳ Connecting...</div>
+<div class="phone">
+  <div class="title">Smart Room Monitor</div>
+  <div class="grid">
+    <div class="card temp-box">
+      <div class="gauge"></div>
+      <div class="t-val"><div class="t-big"><span id="temp">0</span><span class="t-unit">°C</span></div><div class="t-label">Suhu Ruangan</div></div>
+    </div>
+    <div class="side">
+      <div class="card info-box"><div class="i-icon">💧</div><div class="i-val"><span id="hum">0</span>%</div><div class="i-label">Kelembaban</div></div>
+      <div class="card info-box"><div class="i-icon">🌀</div><div class="i-val" id="fanStat" style="color:#666">OFF</div><div class="i-label">Status Kipas</div></div>
+    </div>
+  </div>
+  <div class="card slider-card">
+    <div class="s-head"><span>Set Threshold</span><span id="setTxt">26 °C</span></div>
+    <input type="range" min="20" max="35" value="26" id="setSlider" oninput="sendCmd('SET_'+this.value); document.getElementById('setTxt').innerText=this.value+' °C'">
+  </div>
+  <div class="mode-row">
+    <span style="font-weight:bold">AUTO MODE</span>
+    <div class="switch" id="autoSw" onclick="toggleMode()"></div>
+  </div>
+  <div class="btn-group">
+    <button class="b-on" onclick="sendCmd('FAN_ON')">ON</button>
+    <button class="b-off" onclick="sendCmd('FAN_OFF')">OFF</button>
+  </div>
+  <div class="chart-box">
+    <div class="legend"><div><span class="dot" style="background:#4da3ff"></span> Suhu</div><div><span class="dot" style="background:#ffd54a"></span> Lembab</div></div>
+    <div class="y-axis"><div>40°</div><div>35°</div><div>30°</div><div>25°</div><div>20°</div></div>
+    <div class="y-axis-r"><div>100</div><div>80</div><div>60</div><div>40</div><div>20</div></div>
+    <div class="chart-grid"></div>
+    <svg viewBox="0 0 300 140" id="chartSvg">
+      <path id="pT" class="line-t" d=""></path>
+      <path id="pH" class="line-h" d=""></path>
+    </svg>
+  </div>
+</div>
+
+<script>
+  // --- KONFIGURASI (SESUAIKAN!) ---
+  const BROKER = "0e8832b388564f75925026d13f6e5c82.s1.eu.hivemq.cloud"; // Hostname broker (tanpa wss://)
+  const PORT = 8884;                             // Port WebSocket TLS
+  const CLIENT_ID = "web_" + Math.random().toString(16).substr(2, 8);
+  const TOPIC = "smartroom/KAMAR_1/data";         // Sesuaikan device_id ESP32
+  const USER = "SmartMonitoringRoom";
+  const PASS = "123Dan456";
+
+  let client = new Paho.MQTT.Client(BROKER, PORT, CLIENT_ID);
+  let dT=[], dH=[];
+
+  client.onConnectionLost = (r) => { document.getElementById('status').innerHTML="⛔ Offline"; document.getElementById('status').className="offline"; };
+  client.onMessageArrived = (msg) => {
+    const p = new URLSearchParams(msg.payloadString);
+    const t = parseFloat(p.get('t')), h = parseFloat(p.get('h'));
+    const f = p.get('f')==='1', m = p.get('m')==='1', s = parseFloat(p.get('s'));
+    
+    document.getElementById('temp').innerText = t;
+    document.getElementById('hum').innerText = h;
+    document.getElementById('fanStat').innerText = f?"ON":"OFF";
+    document.getElementById('fanStat').style.color = f?"#96c93d":"#666";
+    document.getElementById('setSlider').value = s;
+    document.getElementById('setTxt').innerText = s+" °C";
+    
+    const sw = document.getElementById('autoSw');
+    if(m) sw.classList.add('on'); else sw.classList.remove('on');
+    
+    draw(t, h);
+  };
+
+  function connect() {
+    client.connect({
+      onSuccess: () => { 
+        document.getElementById('status').innerHTML="✅ Online"; 
+        document.getElementById('status').className="online";
+        client.subscribe(TOPIC); 
+      },
+      onFailure: (e) => { document.getElementById('status').innerHTML="❌ Failed"; setTimeout(connect, 5000); },
+      userName: USER, password: PASS, useSSL: true
+    });
+  }
+
+  function sendCmd(cmd) { if(client.isConnected()) client.send(new Paho.MQTT.Message(cmd).setDestination("smartroom/KAMAR_1/cmd")); }
+  function toggleMode() { sendCmd(document.getElementById('autoSw').classList.contains('on') ? "MODE_MAN" : "MODE_AUTO"); }
+
+  function draw(t, h){
+    if(isNaN(t)||isNaN(h)) return;
+    dT.push(t); dH.push(h);
+    if(dT.length>12){dT.shift(); dH.shift();}
+    let pT="", pH="", step=300/(dT.length-1||1);
+    for(let i=0;i<dT.length;i++){
+      let x=i*step, yT=140-((dT[i]-20)*7), yH=140-(dH[i]*1.4);
+      yT=Math.max(5,Math.min(135,yT)); yH=Math.max(5,Math.min(135,yH));
+      pT+=(i?"L":"M")+x.toFixed(1)+","+yT.toFixed(1);
+      pH+=(i?"L":"M")+x.toFixed(1)+","+yH.toFixed(1);
+    }
+    document.getElementById('pT').setAttribute('d',pT);
+    document.getElementById('pH').setAttribute('d',pH);
+  }
+
+  connect();
+</script>
+</body>
+</html>
